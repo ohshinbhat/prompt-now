@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastTickDate = Date()
     private var nudgeIndex = 0
     private var activePopover: NSPopover?
+    private var notificationsEnabled = false
 
     override init() {
         reminderState = ReminderTimerState(
@@ -43,8 +44,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func configureNotifications() {
-        UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        guard AppRuntime.isRunningFromAppBundle else {
+            notificationsEnabled = false
+            return
+        }
+
+        notificationsEnabled = true
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     private func configureStatusItem() {
@@ -121,6 +129,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showReminderNotification(for target: StoredTarget) {
+        guard notificationsEnabled else { return }
+
         let content = UNMutableNotificationContent()
         content.title = "Prompt Now"
         content.body = "\(target.displayName) is ready for another pass."
@@ -195,11 +205,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         menu.addItem(.separator())
 
         let launchItem = NSMenuItem(
-            title: launchAtLogin.isEnabled ? "Launch at login: On" : "Launch at login: Off",
+            title: launchAtLogin.menuTitle,
             action: #selector(toggleLaunchAtLogin),
             keyEquivalent: ""
         )
         launchItem.target = self
+        launchItem.isEnabled = launchAtLogin.canManage
         menu.addItem(launchItem)
 
         let permissionItem = NSMenuItem(title: "Accessibility permission...", action: #selector(openAccessibilitySettings), keyEquivalent: "")

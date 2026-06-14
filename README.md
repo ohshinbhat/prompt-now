@@ -22,3 +22,5 @@ swift run PromptNow
 ```
 
 The app lives in the menu bar, shows the countdown, and can be turned off from its menu.
+
+When run with `swift run`, macOS notifications and Launch at Login are skipped because those APIs require a real `.app` bundle. Use `./scripts/build-app.sh` for the full menu bar app.

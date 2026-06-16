@@ -19,7 +19,7 @@ public struct ReminderTimerState: Equatable {
         hasTarget: Bool = false,
         isActive: Bool = true
     ) {
-        let clampedInterval = max(60, interval)
+        let clampedInterval = max(1, interval)
         self.interval = clampedInterval
         self.remaining = remaining ?? clampedInterval
         self.isEnabled = isEnabled
@@ -42,7 +42,7 @@ public struct ReminderTimerState: Equatable {
     }
 
     public mutating func setInterval(_ seconds: TimeInterval) {
-        interval = max(60, seconds)
+        interval = max(1, seconds)
         remaining = interval
     }
 
@@ -64,8 +64,12 @@ public struct ReminderTimerState: Equatable {
 
     public static func format(_ seconds: TimeInterval) -> String {
         let wholeSeconds = max(0, Int(seconds.rounded(.up)))
-        let minutes = wholeSeconds / 60
+        let hours = wholeSeconds / 3_600
+        let minutes = (wholeSeconds % 3_600) / 60
         let seconds = wholeSeconds % 60
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        }
         return String(format: "%02d:%02d", minutes, seconds)
     }
 }

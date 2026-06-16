@@ -26,9 +26,21 @@ private func checkReminderTimer() {
     expect(firing.tick(by: 60) == .fired, "timer should fire at zero")
     expect(firing.remaining == 60, "timer should reset after fire")
 
+    var quick = ReminderTimerState(interval: 30, hasTarget: true)
+    expect(quick.interval == 30, "timer should allow short preview intervals")
+    expect(quick.tick(by: 30) == .fired, "short timer should fire")
+
+    var resettable = ReminderTimerState(interval: 30, hasTarget: true)
+    _ = resettable.tick(by: 12)
+    expect(resettable.remaining == 18, "timer should count down before reset")
+    resettable.reset()
+    expect(resettable.remaining == 30, "reset should restore the current interval")
+
     expect(ReminderTimerState.format(61) == "01:01", "format exact seconds")
     expect(ReminderTimerState.format(60.1) == "01:01", "format rounds up")
     expect(ReminderTimerState.format(0) == "00:00", "format zero")
+    expect(ReminderTimerState.format(3_661) == "01:01:01", "format hours as hh:mm:ss")
+    expect(ReminderTimerState.format(111_496) == "30:58:16", "format long hour timers without giant minute counts")
 
     var finalMinute = ReminderTimerState(interval: 120, remaining: 61, hasTarget: true)
     expect(!finalMinute.isInFinalMinute, "not final minute before threshold")

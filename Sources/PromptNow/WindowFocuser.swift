@@ -1,8 +1,18 @@
 import AppKit
+#if !APP_STORE
 import ApplicationServices
+#endif
 import Foundation
 
 final class WindowFocuser {
+    static var canUseAccessibilityFeatures: Bool {
+        #if APP_STORE
+        return false
+        #else
+        return true
+        #endif
+    }
+
     func focus(_ target: StoredTarget) {
         if let runningApp = runningApplication(for: target) {
             runningApp.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
@@ -19,10 +29,14 @@ final class WindowFocuser {
     }
 
     func openAccessibilitySettings() {
+        #if APP_STORE
+        return
+        #else
         guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else {
             return
         }
         NSWorkspace.shared.open(url)
+        #endif
     }
 
     private func runningApplication(for target: StoredTarget) -> NSRunningApplication? {
@@ -42,6 +56,9 @@ final class WindowFocuser {
     }
 
     private func raiseFrontWindow(for app: NSRunningApplication) {
+        #if APP_STORE
+        return
+        #else
         guard AXIsProcessTrusted() else { return }
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
@@ -50,5 +67,6 @@ final class WindowFocuser {
            let focusedWindow {
             AXUIElementPerformAction(focusedWindow as! AXUIElement, kAXRaiseAction as CFString)
         }
+        #endif
     }
 }

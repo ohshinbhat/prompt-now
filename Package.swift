@@ -15,7 +15,8 @@ let package = Package(
         .target(name: "PromptNowCore"),
         .executableTarget(
             name: "PromptNow",
-            dependencies: ["PromptNowCore"]
+            dependencies: ["PromptNowCore"],
+            resources: [.process("Resources")]
         ),
         .executableTarget(
             name: "PromptNowCoreCheck",

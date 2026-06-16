@@ -5,15 +5,23 @@ final class SettingsStore {
         static let isEnabled = "isEnabled"
         static let interval = "interval"
         static let lastTarget = "lastTarget"
+        static let didMigratePreviewDefault = "didMigratePreviewDefault"
     }
 
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        if !defaults.bool(forKey: Key.didMigratePreviewDefault) {
+            let existingInterval = defaults.object(forKey: Key.interval) as? Double
+            if existingInterval == nil || abs((existingInterval ?? 0) - 15 * 60) < 0.5 {
+                defaults.set(30, forKey: Key.interval)
+            }
+            defaults.set(true, forKey: Key.didMigratePreviewDefault)
+        }
         defaults.register(defaults: [
             Key.isEnabled: true,
-            Key.interval: 15 * 60
+            Key.interval: 30
         ])
     }
 

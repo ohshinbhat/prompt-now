@@ -11,13 +11,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let windowFocuser = WindowFocuser()
     private let idleMonitor = IdleMonitor()
     private let launchAtLogin = LaunchAtLoginController()
+    private let menuBarRenderer = MenuBarRenderer()
 
     private var statusItem: NSStatusItem!
+    private var statusView: MenuBarStatusView!
     private var timer: Timer?
     private var reminderState: ReminderTimerState
     private var lastTickDate = Date()
     private var nudgeIndex = 0
-    private var activePopover: NSPopover?
+    private var menuBarPhase = 0
+    private var controlPopover: NSPopover?
+    private var controlPanelView: PromptPanelView?
+    private var nudgePopover: NSPopover?
     private var notificationsEnabled = false
 
     override init() {
@@ -37,6 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restoreLastTarget()
         startClock()
         renderMenu()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.showControlPanel()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -56,9 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func configureStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "sparkle.magnifyingglass", accessibilityDescription: "Prompt Now")
-        statusItem.button?.imagePosition = .imageLeading
+        statusItem = NSStatusBar.system.statusItem(withLength: MenuBarStatusView.badgeWidth)
+        statusView = MenuBarStatusView(frame: NSRect(x: 0, y: 0, width: MenuBarStatusView.badgeWidth, height: NSStatusBar.system.thickness))
+        statusView.target = self
+        statusView.action = #selector(toggleControlPanel)
+        statusItem.view = statusView
     }
 
     private func configureObservers() {
@@ -112,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         reminderState.isActive = idleMonitor.isUserActive
         reminderState.hasTarget = targetTracker.lastTarget != nil
+        menuBarPhase += 1
 
         if reminderState.tick(by: elapsed) == .fired {
             fireReminder()
@@ -145,7 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func showNudgePanel(for target: StoredTarget) {
-        guard let button = statusItem.button else { return }
+        guard let anchorView = statusAnchorView else { return }
 
         let alert = NSAlert()
         alert.messageText = "Back to \(target.displayName)"
@@ -162,80 +173,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         controller.view = hostingView
         popover.contentViewController = controller
         popover.behavior = .transient
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        activePopover = popover
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+        nudgePopover = popover
     }
 
     private func renderMenu() {
         renderMenuTitle()
+        updateControlPanel()
+    }
 
-        let menu = NSMenu()
+    private func updateControlPanel() {
+        controlPanelView?.update(
+            state: reminderState,
+            statusLine: statusLine,
+            targetName: targetTracker.lastTarget?.displayName,
+            launchTitle: launchAtLogin.menuTitle,
+            launchEnabled: launchAtLogin.canManage,
+            accessibilityEnabled: WindowFocuser.canUseAccessibilityFeatures,
+            nudge: NudgeCopy.line(for: nudgeIndex)
+        )
+    }
 
-        let status = NSMenuItem(title: statusLine, action: nil, keyEquivalent: "")
-        status.isEnabled = false
-        menu.addItem(status)
-
-        if let target = targetTracker.lastTarget {
-            let targetItem = NSMenuItem(title: "Last target: \(target.displayName)", action: nil, keyEquivalent: "")
-            targetItem.isEnabled = false
-            menu.addItem(targetItem)
-        } else {
-            let waitingItem = NSMenuItem(title: "Open Codex or Claude to start", action: nil, keyEquivalent: "")
-            waitingItem.isEnabled = false
-            menu.addItem(waitingItem)
+    @objc private func toggleControlPanel() {
+        if let controlPopover, controlPopover.isShown {
+            controlPopover.performClose(nil)
+            return
         }
 
-        menu.addItem(.separator())
+        showControlPanel()
+    }
 
-        let toggle = NSMenuItem(
-            title: reminderState.isEnabled ? "Turn reminders off" : "Turn reminders on",
-            action: #selector(toggleEnabled),
-            keyEquivalent: ""
-        )
-        toggle.target = self
-        menu.addItem(toggle)
+    private func showControlPanel() {
+        guard let anchorView = statusAnchorView else { return }
 
-        let openNow = NSMenuItem(title: "Open last target now", action: #selector(openLastTargetNow), keyEquivalent: "o")
-        openNow.target = self
-        openNow.isEnabled = targetTracker.lastTarget != nil
-        menu.addItem(openNow)
+        let panel = PromptPanelView(initialInterval: reminderState.interval)
+        panel.onToggleEnabled = { [weak self] in self?.toggleEnabled() }
+        panel.onOpenTarget = { [weak self] in self?.openLastTargetNow() }
+        panel.onResetTimer = { [weak self] in self?.resetTimer() }
+        panel.onSnoozeTimer = { [weak self] in self?.snoozeTimer() }
+        panel.onSetTimer = { [weak self] seconds in self?.setTimer(seconds) }
+        panel.onToggleLaunchAtLogin = { [weak self] in self?.toggleLaunchAtLogin() }
+        panel.onOpenAccessibility = { [weak self] in self?.openAccessibilitySettings() }
+        panel.onQuit = { [weak self] in self?.quit() }
 
-        menu.addItem(timerSubmenu())
+        let controller = NSViewController()
+        controller.view = panel
 
-        menu.addItem(.separator())
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        popover.contentSize = panel.frame.size
+        popover.contentViewController = controller
 
-        let launchItem = NSMenuItem(
-            title: launchAtLogin.menuTitle,
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
-        )
-        launchItem.target = self
-        launchItem.isEnabled = launchAtLogin.canManage
-        menu.addItem(launchItem)
-
-        let permissionItem = NSMenuItem(title: "Accessibility permission...", action: #selector(openAccessibilitySettings), keyEquivalent: "")
-        permissionItem.target = self
-        menu.addItem(permissionItem)
-
-        menu.addItem(.separator())
-
-        let nudge = NSMenuItem(title: NudgeCopy.line(for: nudgeIndex), action: nil, keyEquivalent: "")
-        nudge.isEnabled = false
-        menu.addItem(nudge)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(title: "Quit Prompt Now", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-
-        statusItem.menu = menu
+        controlPanelView = panel
+        controlPopover = popover
+        updateControlPanel()
+        popover.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
     }
 
     private func renderMenuTitle() {
-        guard let button = statusItem?.button else { return }
-        let pulse = reminderState.isInFinalMinute && Int(Date().timeIntervalSince1970) % 2 == 0 ? " *" : ""
-        button.title = "\(reminderState.statusTitle)\(pulse)"
+        statusView?.update(menuBarRenderer.content(state: reminderState, phase: menuBarPhase))
+    }
+
+    private var statusAnchorView: NSView? {
+        statusView ?? statusItem?.button
     }
 
     private var statusLine: String {
@@ -319,8 +320,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @objc private func selectTimerPreset(_ sender: NSMenuItem) {
         guard let seconds = sender.representedObject as? TimeInterval else { return }
+        setTimer(seconds)
+    }
+
+    private func setTimer(_ seconds: TimeInterval) {
         reminderState.setInterval(seconds)
-        settings.interval = seconds
+        settings.interval = reminderState.interval
+        renderMenu()
+    }
+
+    private func resetTimer() {
+        reminderState.reset()
+        renderMenu()
+    }
+
+    private func snoozeTimer() {
+        reminderState.isEnabled = true
+        settings.isEnabled = true
+        reminderState.reset()
         renderMenu()
     }
 
